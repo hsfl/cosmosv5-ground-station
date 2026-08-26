@@ -1,0 +1,44 @@
+#---------------------------------------------------------------------------
+# COSMOS v4 — ground-station standalone documentation
+# Run from ground-station/: doxygen Doxyfile
+# HTML output: src/docs/ground-station/html/
+#---------------------------------------------------------------------------
+
+PROJECT_NAME           = "COSMOS v4 — ground-station"
+PROJECT_BRIEF          = "COSMOS ground-station layer"
+PROJECT_NUMBER         = 4.0
+OUTPUT_DIRECTORY       = ../docs/ground-station
+
+INPUT                  = ../docs/mainpage.dox                          ../docs/layer_ground_station.dox                          libraries
+
+RECURSIVE              = YES
+FILE_PATTERNS          = *.cpp *.h *.hpp *.dox *.md
+EXCLUDE_PATTERNS       = */build/* */CMakeFiles/*
+INPUT_ENCODING         = UTF-8
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = ../thirdparty/libraries                          ../thirdparty/libraries/json11                          ../kernel/libraries                          ../micro-agent/libraries                          ../simulator/libraries                          ../agent/libraries                          ../modules/libraries                          ../ground-station/libraries
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+SOURCE_BROWSER         = YES
+SEARCHENGINE           = YES
+
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_LOGFILE           = ../docs/ground-station/doxygen_warnings.log

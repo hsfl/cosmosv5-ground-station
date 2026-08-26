@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.20)
+
+file(GLOB files "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+
+foreach(file ${files})
+    get_filename_component(bfile ${file} NAME_WE)
+    add_executable(${bfile} ${bfile}.cpp)
+    install(TARGETS ${bfile} DESTINATION bin)
+endforeach()
+
+target_link_libraries(add_radio CosmosAgent CosmosIc9100 CosmosNetwork CosmosSupport)
+target_link_libraries(agent_antenna CosmosAgent CosmosGs232b CosmosPrkx2su)
+target_link_libraries(agent_control CosmosAgent CosmosSimulator CosmosPhysics)
+target_link_libraries(agent_kpc9612p CosmosAgent CosmosKpc9612p CosmosDeviceGige)
+target_link_libraries(agent_radio CosmosAgent CosmosDeviceSerial CosmosIc9100 CosmosTs2000 CosmosUsrp)
+target_link_libraries(ax25_recv CosmosCad CosmosAgent CosmosDeviceSerial CosmosNetwork)
+target_link_libraries(ic9100 CosmosDeviceSerial CosmosAgent CosmosIc9100 CosmosUsrp)
+target_link_libraries(kiss_recv CosmosString CosmosTime CosmosKiss CosmosDeviceSerial CosmosLog CosmosSlip)
+target_link_libraries(monitor_antenna CosmosAgent CosmosNetwork)
+target_link_libraries(monitor_gs CosmosAgent CosmosNetwork)
+target_link_libraries(agent_transmitter CosmosAgent CosmosCssl CosmosKiss CosmosSimulator CosmosPhysics)
+target_link_libraries(agent_transmitter2 CosmosAgent CosmosCssl CosmosKiss CosmosSimulator CosmosPhysics)
+target_link_libraries(track_sband_test CosmosAgent CosmosGs232b CosmosPrkx2suClass CosmosSimulator CosmosPhysics)
