@@ -1,3 +1,0 @@
-[submodule "deps/modules"]
-	path = deps/modules
-	url = https://github.com/hsfl/cosmosv5-modules.git
