@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
                 trackstruc ttrack;
                 ttrack.name = nodes[i];
                 cosmosstruc *cinfo = json_init(ttrack.name);
-                iretn = json_setup_node(ttrack.name, cinfo);
+                iretn = json_setup_node(ttrack.name, agent->cinfo->realm.name, cinfo);
                 if (iretn == 0 && (currentmjd()-cinfo->node.loc.pos.eci.utc) < 10.)
                 {
                     // Valid node. Initialize tracking and push it to list
@@ -387,7 +387,7 @@ int main(int argc, char *argv[])
 
     // Look for TLE file
     char fname[200];
-    sprintf(fname,"%s/tle.ini",get_nodedir(nodename).c_str());
+    sprintf(fname,"%s/tle.ini",get_nodedir(agent->cinfo->realm.name, nodename).c_str());
     vector <Convert::tlestruc> tle;
     if ((iretn=load_lines_multi(fname, tle)) > 0)
     {

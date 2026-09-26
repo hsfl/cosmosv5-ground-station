@@ -275,7 +275,7 @@ int main(int argc, char *argv[])
         agent->cinfo->device[devindex].ant.model = DEVICE_MODEL_LOOPBACK;
     }
 
-    iretn = json_dump_node(agent->cinfo);
+    iretn = json_dump_node(agent->cinfo, agent->cinfo->realm.name);
     if (iretn < 0)
     {
         fprintf(agent->get_debug_fd(), "Failed to save node %s\n", cosmos_error_string(iretn).c_str());

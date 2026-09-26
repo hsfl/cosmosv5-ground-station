@@ -247,7 +247,7 @@ int main(int argc, char *argv[])
         agent->cinfo->devspec.ant[antindex].model = DEVICE_MODEL_GS232B;
     }
 
-    iretn = json_dump_node(agent->cinfo);
+    iretn = json_dump_node(agent->cinfo, agent->cinfo->realm.name);
     if (iretn < 0)
     {
         agent->debug_log.Printf("Failed to save node %s\n", cosmos_error_string(iretn).c_str());
@@ -313,7 +313,7 @@ int main(int argc, char *argv[])
     }
 
     // Restore default offsets
-    string offsetname = get_nodedir(nodename) + '/' + antbase + ".offset";
+    string offsetname = get_nodedir(agent->cinfo->realm.name, nodename) + '/' + antbase + ".offset";
     FILE *op = fopen(offsetname.c_str(), "r");
     if (op)
     {

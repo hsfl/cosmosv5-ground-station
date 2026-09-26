@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
                 agent->cinfo->device[deviceindex]->portidx = iretn;
             }
         }
-        iretn = json_dump_node(agent->cinfo);
+        iretn = json_dump_node(agent->cinfo, agent->cinfo->realm.name);
     }
 
     // Look for named radio so we can use the right one
