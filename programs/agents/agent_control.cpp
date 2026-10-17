@@ -300,88 +300,81 @@ int main(int argc, char *argv[])
     trackindex = 0;
     track[0].name = "idle";
     track[0].target.type = NODE_TYPE_DATA;
-    vector <string> nodes;
-    iretn = data_list_nodes(nodes);
+    vector<nodestruc> nodes;
+    json_load_realm_nodes(agent->cinfo->realm.name, nodes);
     for (size_t i=0; i<nodes.size(); ++i)
     {
-        string path = data_base_path(nodes[i]) + "/node.ini";
-        FILE *fp = fopen(path.c_str(), "r");
-        if (fp != nullptr)
+        int32_t type = nodes[i].type;
+        switch (type)
         {
-            int32_t type;
-            fscanf(fp, "{\"node_type\":%d", &type);
-            fclose(fp);
-            switch (type)
+        case NODE_TYPE_SATELLITE:
+        case NODE_TYPE_SUN:
+        case NODE_TYPE_MOON:
+            trackstruc ttrack;
+            ttrack.name = nodes[i].name;
+            cosmosstruc *cinfo = json_init(ttrack.name);
+            iretn = json_setup_node(ttrack.name, agent->cinfo->realm.name, cinfo);
+            if (iretn == 0 && (currentmjd()-cinfo->node.loc.pos.eci.utc) < 10.)
             {
-            case NODE_TYPE_SATELLITE:
-            case NODE_TYPE_SUN:
-            case NODE_TYPE_MOON:
-                trackstruc ttrack;
-                ttrack.name = nodes[i];
-                cosmosstruc *cinfo = json_init(ttrack.name);
-                iretn = json_setup_node(ttrack.name, agent->cinfo->realm.name, cinfo);
-                if (iretn == 0 && (currentmjd()-cinfo->node.loc.pos.eci.utc) < 10.)
+                // Valid node. Initialize tracking and push it to list
+                ttrack.target.type = cinfo->node.type;
+                ttrack.target.loc = cinfo->node.loc;
+                ttrack.physics = cinfo->node.phys;
+
+                // Build up table of radios
+                for (size_t i=0; i<cinfo->devspec.tcv_cnt; ++i)
                 {
-                    // Valid node. Initialize tracking and push it to list
-                    ttrack.target.type = cinfo->node.type;
-                    ttrack.target.loc = cinfo->node.loc;
-                    ttrack.physics = cinfo->node.phys;
-
-                    // Build up table of radios
-                    for (size_t i=0; i<cinfo->devspec.tcv_cnt; ++i)
-                    {
-                        tradio.name = cinfo->pieces[cinfo->devspec.tcv[i].pidx].name;
+                    tradio.name = cinfo->pieces[cinfo->devspec.tcv[i].pidx].name;
 						tradio.type = DeviceType::TCV;
-                        tradio.info = cinfo->devspec.tcv[i];
-                        tradio.otherradioindex = 9999;
-                        ttrack.radios.push_back(tradio);
-                    }
+                    tradio.info = cinfo->devspec.tcv[i];
+                    tradio.otherradioindex = 9999;
+                    ttrack.radios.push_back(tradio);
+                }
 
-                    for (size_t i=0; i<cinfo->devspec.txr_cnt; ++i)
-                    {
-                        tradio.name = cinfo->pieces[cinfo->devspec.txr[i].pidx].name;
+                for (size_t i=0; i<cinfo->devspec.txr_cnt; ++i)
+                {
+                    tradio.name = cinfo->pieces[cinfo->devspec.txr[i].pidx].name;
 						tradio.type = DeviceType::TXR;
-                        tradio.info.band = cinfo->devspec.txr[i].band;
-                        tradio.info.freq = cinfo->devspec.txr[i].freq;
-                        tradio.info.opmode = cinfo->devspec.txr[i].opmode;
-                        tradio.info.modulation = cinfo->devspec.txr[i].modulation;
-                        tradio.otherradioindex = 9999;
-                        ttrack.radios.push_back(tradio);
-                    }
+                    tradio.info.band = cinfo->devspec.txr[i].band;
+                    tradio.info.freq = cinfo->devspec.txr[i].freq;
+                    tradio.info.opmode = cinfo->devspec.txr[i].opmode;
+                    tradio.info.modulation = cinfo->devspec.txr[i].modulation;
+                    tradio.otherradioindex = 9999;
+                    ttrack.radios.push_back(tradio);
+                }
 
-                    for (size_t i=0; i<cinfo->devspec.rxr_cnt; ++i)
-                    {
-                        tradio.name = cinfo->pieces[cinfo->devspec.rxr[i].pidx].name;
+                for (size_t i=0; i<cinfo->devspec.rxr_cnt; ++i)
+                {
+                    tradio.name = cinfo->pieces[cinfo->devspec.rxr[i].pidx].name;
 						tradio.type = DeviceType::RXR;
-                        tradio.info.band = cinfo->devspec.rxr[i].band;
-                        tradio.info.freq = cinfo->devspec.rxr[i].freq;
-                        tradio.info.opmode = cinfo->devspec.rxr[i].opmode;
-                        tradio.info.modulation = cinfo->devspec.rxr[i].modulation;
-                        tradio.otherradioindex = 9999;
-                        ttrack.radios.push_back(tradio);
-                    }
+                    tradio.info.band = cinfo->devspec.rxr[i].band;
+                    tradio.info.freq = cinfo->devspec.rxr[i].freq;
+                    tradio.info.opmode = cinfo->devspec.rxr[i].opmode;
+                    tradio.info.modulation = cinfo->devspec.rxr[i].modulation;
+                    tradio.otherradioindex = 9999;
+                    ttrack.radios.push_back(tradio);
+                }
 
-                    if (type == NODE_TYPE_SATELLITE)
+                if (type == NODE_TYPE_SATELLITE)
+                {
+                    printf("Propagating Node %s forward %.0f\r", ttrack.name.c_str(), 86400.*(currentmjd()-ttrack.target.loc.pos.eci.utc));
+                    Physics::gauss_jackson_init_eci(ttrack.gjh, 12, 0, 5., ttrack.target.loc.pos.eci.utc, ttrack.target.loc.pos.eci, ttrack.target.loc.att.icrf, ttrack.physics, ttrack.target.loc);
+                    double tutc = ttrack.target.loc.pos.eci.utc + 60./86400.;
+                    while (tutc < currentmjd())
                     {
                         printf("Propagating Node %s forward %.0f\r", ttrack.name.c_str(), 86400.*(currentmjd()-ttrack.target.loc.pos.eci.utc));
-                        Physics::gauss_jackson_init_eci(ttrack.gjh, 12, 0, 5., ttrack.target.loc.pos.eci.utc, ttrack.target.loc.pos.eci, ttrack.target.loc.att.icrf, ttrack.physics, ttrack.target.loc);
-                        double tutc = ttrack.target.loc.pos.eci.utc + 60./86400.;
-                        while (tutc < currentmjd())
-                        {
-                            printf("Propagating Node %s forward %.0f\r", ttrack.name.c_str(), 86400.*(currentmjd()-ttrack.target.loc.pos.eci.utc));
-                            Physics::gauss_jackson_propagate(ttrack.gjh, ttrack.physics, ttrack.target.loc, tutc);
-                            fflush(stdout);
-                            tutc += 600./86400.;
-                        }
-                        printf("Propagating Node %s forward %.0f\n", ttrack.name.c_str(), 86400.*(currentmjd()-ttrack.target.loc.pos.eci.utc));
-                        Physics::gauss_jackson_init_eci(ttrack.gjh, 12, 0, 1., ttrack.target.loc.pos.eci.utc, ttrack.target.loc.pos.eci, ttrack.target.loc.att.icrf, ttrack.physics, ttrack.target.loc);
-                        Physics::gauss_jackson_propagate(ttrack.gjh, ttrack.physics, ttrack.target.loc, currentmjd());
+                        Physics::gauss_jackson_propagate(ttrack.gjh, ttrack.physics, ttrack.target.loc, tutc);
                         fflush(stdout);
+                        tutc += 600./86400.;
                     }
-                    track.push_back(ttrack);
-                    json_destroy(cinfo);
+                    printf("Propagating Node %s forward %.0f\n", ttrack.name.c_str(), 86400.*(currentmjd()-ttrack.target.loc.pos.eci.utc));
+                    Physics::gauss_jackson_init_eci(ttrack.gjh, 12, 0, 1., ttrack.target.loc.pos.eci.utc, ttrack.target.loc.pos.eci, ttrack.target.loc.att.icrf, ttrack.physics, ttrack.target.loc);
+                    Physics::gauss_jackson_propagate(ttrack.gjh, ttrack.physics, ttrack.target.loc, currentmjd());
+                    fflush(stdout);
                 }
+                track.push_back(ttrack);
             }
+            json_destroy(cinfo);
         }
     }
 
