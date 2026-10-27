@@ -112,7 +112,6 @@ namespace Cosmos
                 const json11::Json &acq = jc.second["acquisition"];
                 Camera cam;
                 cam.name = jc.first;
-                cam.piece = jc.second["piece"].string_value();
                 cam.detector = jc.second["detector"].string_value();
                 cam.cols = phys["cols"].int_value();
                 cam.rows = phys["rows"].int_value();
@@ -163,7 +162,7 @@ namespace Cosmos
             {
                 Mode mode;
                 mode.name = jm.first;
-                mode.event = jm.second["event"].string_value();
+                mode.camera = jm.second["camera"].string_value();
                 mode.rate = jm.second["rate"].number_value();
                 mode.inttime = jm.second["inttime"].number_value();
                 const json11::Json &jchan = jm.second[jm.first == "active" ? "lasers" : "channels"];
@@ -238,16 +237,16 @@ namespace Cosmos
                     {
                         continue;
                     }
+                    Tile tile;
+                    uint32_t frames;
+                    uint32_t tilesize;
+                    if (Support::Agent::parse_camera_snap(event.data, tile.camera, frames, tile.rate, tile.inttime, tilesize) < 0 || tile.rate <= 0.)
+                    {
+                        continue;
+                    }
                     for (const auto &mode : modes)
                     {
-                        if (mode.second.event.empty() || mode.second.event != event.name)
-                        {
-                            continue;
-                        }
-                        Tile tile;
-                        uint32_t frames;
-                        uint32_t tilesize;
-                        if (Support::Agent::parse_camera_snap(event.data, tile.camera, frames, tile.rate, tile.inttime, tilesize) < 0 || tile.rate <= 0.)
+                        if (mode.second.camera.empty() || mode.second.camera != tile.camera)
                         {
                             continue;
                         }
@@ -487,6 +486,7 @@ namespace Cosmos
             add("baseline", "{" + baseline + "}");
             add("instrument", instrument);
             add("mode", tile.mode);
+            add("camera", tile.camera);
             add("realm", realm);
             add("node", node);
             add("request", "{" + tile.request + "}");
@@ -498,7 +498,6 @@ namespace Cosmos
             add("missed samples", std::to_string(misses));
             add("body frame", "{boresight +Z, along-track +X (ahead), cross-track +Y}");
             add("band camera", envi_list<const Band *>(bl, [this](const Band *const &b) { return cameras[b->camera].name; }));
-            add("band piece", envi_list<const Band *>(bl, [this](const Band *const &b) { return cameras[b->camera].piece; }));
             add("band ifov", envi_list<const Band *>(bl, [this](const Band *const &b) { return fixed(cameras[b->camera].ifov, 9); }));
             add("band superpixel", envi_list<const Band *>(bl, [this](const Band *const &b) { return std::to_string(cameras[b->camera].sp_across) + "x" + std::to_string(cameras[b->camera].sp_along); }));
             add("band first col", envi_list<const Band *>(bl, [this](const Band *const &b) { return std::to_string(cameras[b->camera].first_col); }));

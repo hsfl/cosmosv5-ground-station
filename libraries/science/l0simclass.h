@@ -9,8 +9,8 @@
 //! \file l0simclass.h
 //! Pass 2 of simulated science data (task 004): render the L0 data of archived
 //! imaging tiles. The node file's instruments.<name> holds the detector model
-//! (physical pixels, acquired rows, downlinked superpixels) and the forward model
-//! placeholders; the archive's telemetry gives the state and its tile events the
+//! (physical pixels, acquired rows, downlinked superpixels), the forward model
+//! placeholders and, per mode, the virtual camera that takes its tiles; the archive's telemetry gives the state and its tile events the
 //! acquisition times. Each tile becomes <archive>/<realm>/<node>/data/<yyyy>/<ddd>/
 //! <mode>_<yyyydddhhmmss>.img|hdr.
 
@@ -28,11 +28,11 @@ namespace Cosmos
                 int32_t first_row = 0;
             };
 
-            //! One physical camera and how it is read
+            //! One physical camera inside the instrument and how it is read. These are
+            //! internal: the node commands the virtual cameras of the modes.
             struct Camera
             {
                 string name;
-                string piece;
                 string detector;
                 // Physical detector
                 uint16_t cols = 0;
@@ -67,8 +67,8 @@ namespace Cosmos
             struct Mode
             {
                 string name;
-                //! Name of the command event whose tiles this mode renders
-                string event;
+                //! The virtual camera (a CAM device) whose snap tiles this mode renders
+                string camera;
                 double rate = 0.;
                 double inttime = 0.;
                 vector<int32_t> channels;
