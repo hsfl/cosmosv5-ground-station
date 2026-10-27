@@ -31,5 +31,7 @@ include_directories(${COSMOS_SOURCE_GROUND_STATION}/libraries/device)
 
 add_subdirectory(${COSMOS_SOURCE_GROUND_STATION}/libraries/device/general   ${CMAKE_BINARY_DIR}/ground-station/libraries/device/general)
 add_subdirectory(${COSMOS_SOURCE_GROUND_STATION}/libraries/device/netradio  ${CMAKE_BINARY_DIR}/ground-station/libraries/device/netradio)
+add_subdirectory(${COSMOS_SOURCE_GROUND_STATION}/libraries/archive         ${CMAKE_BINARY_DIR}/ground-station/libraries/archive)
+add_subdirectory(${COSMOS_SOURCE_GROUND_STATION}/libraries/science         ${CMAKE_BINARY_DIR}/ground-station/libraries/science)
 
 endif()
