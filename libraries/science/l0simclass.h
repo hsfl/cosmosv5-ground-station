@@ -5,6 +5,7 @@
 #include "support/convertlib.h"
 #include "support/datalib.h"
 #include "archive/archivelib.h"
+#include "support/envi.h"
 
 //! \file l0simclass.h
 //! Pass 2 of simulated science data (task 004): render the L0 data of archived
@@ -62,6 +63,8 @@ namespace Cosmos
                 double bandwidth = 0.;
                 //! Solar spectral irradiance at 1 AU [W/m²/nm]
                 double irradiance = 0.;
+                //! Active mode: laser energy reaching the surface per observation [J]
+                double laser_energy = 0.;
             };
 
             struct Mode
@@ -71,7 +74,10 @@ namespace Cosmos
                 string camera;
                 double rate = 0.;
                 double inttime = 0.;
+                //! Passive channels or active laser wavelengths [nm]
                 vector<int32_t> channels;
+                //! Active mode: detector region around the laser return [pixels]
+                uint16_t roi[2] = {12, 12};
             };
 
             //! An archived imaging tile
@@ -131,6 +137,10 @@ namespace Cosmos
 
         private:
             int32_t PassiveTile(const Tile &tile, const Mode &mode, string path);
+            int32_t ActiveTile(const Tile &tile, const Mode &mode, string path);
+            vector<const Band *> ModeBands(const Mode &mode);
+            bool Intersect(const rvector &sc, const rvector &dir, const rmatrix &j2s, double demres, rvector &point, double &lat, double &lon);
+            envi_hdr TileHeader(const Tile &tile, const vector<const Band *> &bl, string path, size_t columns, size_t lines, size_t missinglines);
             string KnotsText(double utcbegin, double utcend);
         };
     }

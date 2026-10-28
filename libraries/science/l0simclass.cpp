@@ -153,6 +153,7 @@ namespace Cosmos
                     band.albedo = number_or(jinst["forward"]["albedo"][key], .12);
                     band.bandwidth = number_or(jinst["forward"]["bandwidth"][key], 20.);
                     band.irradiance = number_or(jinst["forward"]["irradiance"][key], solar_irradiance(band.nm));
+                    band.laser_energy = number_or(jinst["forward"]["laser_energy"][key], .01);
                     bands[band.nm] = band;
                 }
             }
@@ -169,6 +170,11 @@ namespace Cosmos
                 for (const auto &jn : jchan.array_items())
                 {
                     mode.channels.push_back(jn.int_value());
+                }
+                if (jm.second["roi"].array_items().size() == 2)
+                {
+                    mode.roi[0] = jm.second["roi"][0].int_value();
+                    mode.roi[1] = jm.second["roi"][1].int_value();
                 }
                 modes[mode.name] = mode;
             }
@@ -312,25 +318,63 @@ namespace Cosmos
             {
                 return 0;
             }
-            if (tile.mode == "passive")
+            if (tile.mode == "active")
             {
-                return PassiveTile(tile, mode->second, path);
+                return ActiveTile(tile, mode->second, path);
             }
-            // Active mode is a later work item
-            return 0;
+            return PassiveTile(tile, mode->second, path);
         }
 
-        int32_t L0Sim::PassiveTile(const Tile &tile, const Mode &mode, string path)
+        //! The mode's bands, in the mode's order
+        vector<const L0Sim::Band *> L0Sim::ModeBands(const Mode &mode)
         {
-            vector<const Band *> tilebands;
+            vector<const Band *> modebands;
             for (int32_t nm : mode.channels)
             {
                 auto band = bands.find(nm);
                 if (band != bands.end())
                 {
-                    tilebands.push_back(&band->second);
+                    modebands.push_back(&band->second);
                 }
             }
+            return modebands;
+        }
+
+        //! Intersect a line of sight from sc along dir (selenocentric ICRF) with the Moon,
+        //! refined with the DEM. lat and lon are selenographic.
+        //! \return False if it misses.
+        bool L0Sim::Intersect(const rvector &sc, const rvector &dir, const rmatrix &j2s, double demres, rvector &point, double &lat, double &lon)
+        {
+            double radius = RMOONM;
+            for (uint16_t it = 0; it <= dem_iterations; ++it)
+            {
+                double b = dot_rv(sc, dir);
+                double c = dot_rv(sc, sc) - radius * radius;
+                double disc = b * b - c;
+                if (disc < 0.)
+                {
+                    return false;
+                }
+                double range = -b - sqrt(disc);
+                if (range <= 0.)
+                {
+                    return false;
+                }
+                point = rv_add(sc, rv_smult(range, dir));
+                rvector selc = rv_mmult(j2s, point);
+                lat = asin(selc.col[2] / length_rv(selc));
+                lon = atan2(selc.col[1], selc.col[0]);
+                if (it < dem_iterations)
+                {
+                    radius = RMOONM + Convert::map_dem_alt(COSMOS_MOON, lon, lat, demres);
+                }
+            }
+            return true;
+        }
+
+        int32_t L0Sim::PassiveTile(const Tile &tile, const Mode &mode, string path)
+        {
+            vector<const Band *> tilebands = ModeBands(mode);
             if (tilebands.empty() || !tile.frames)
             {
                 return GENERAL_ERROR_ARGS;
@@ -395,38 +439,10 @@ namespace Cosmos
                         rvector dir = rv_normal(rvector(tan(band.stripe.along), tan(cross), 1.));
                         dir = transform_q(body2icrf, dir);
 
-                        // Intersect with the Moon, refined with the DEM
-                        double radius = RMOONM;
                         rvector point;
-                        bool hit = false;
                         double lat = 0.;
                         double lon = 0.;
-                        for (uint16_t it = 0; it <= dem_iterations; ++it)
-                        {
-                            double b = dot_rv(sc, dir);
-                            double c = dot_rv(sc, sc) - radius * radius;
-                            double disc = b * b - c;
-                            if (disc < 0.)
-                            {
-                                hit = false;
-                                break;
-                            }
-                            double range = -b - sqrt(disc);
-                            if (range <= 0.)
-                            {
-                                hit = false;
-                                break;
-                            }
-                            hit = true;
-                            point = rv_add(sc, rv_smult(range, dir));
-                            rvector selc = rv_mmult(loc.pos.extra.j2s, point);
-                            lat = asin(selc.col[2] / length_rv(selc));
-                            lon = atan2(selc.col[1], selc.col[0]);
-                            if (it < dem_iterations)
-                            {
-                                radius = RMOONM + Convert::map_dem_alt(COSMOS_MOON, lon, lat, demres);
-                            }
-                        }
+                        bool hit = Intersect(sc, dir, loc.pos.extra.j2s, demres, point, lat, lon);
 
                         double signal = 0.;
                         if (hit)
@@ -462,23 +478,175 @@ namespace Cosmos
                 return GENERAL_ERROR_OUTOFRANGE;
             }
 
+            envi_hdr hdr = TileHeader(tile, tilebands, path, samples, lines, missinglines);
+            vector<const Band *> bl = tilebands;
+            auto add = [&hdr](string key, string value) { hdr.keys.push_back(key); hdr.values.push_back(value); };
+            add("missed samples", std::to_string(misses));
+            add("band superpixel", envi_list<const Band *>(bl, [this](const Band *const &b) { return std::to_string(cameras[b->camera].sp_across) + "x" + std::to_string(cameras[b->camera].sp_along); }));
+            add("band first col", envi_list<const Band *>(bl, [this](const Band *const &b) { return std::to_string(cameras[b->camera].first_col); }));
+            add("band first row", envi_list<const Band *>(bl, [](const Band *const &b) { return std::to_string(b->stripe.first_row); }));
+            add("band along", envi_list<const Band *>(bl, [](const Band *const &b) { return fixed(b->stripe.along, 6); }));
+            add("forward model", "{constant albedo per band, Lambert, spherical normal, DEM lola_16}");
+            add("footprint", envi_list<double>(footprint, [](const double &v) { return fixed(v, 5); }));
+            add("footprint fields", "{first line: lat, lon of first sample, lat, lon of last sample; last line: same}");
+            int32_t iretn = write_envi_data(hdr, reinterpret_cast<uint8_t *>(data.data()));
+            if (iretn < 0)
+            {
+                return iretn;
+            }
+            return lines - missinglines;
+        }
+
+        //! Active mode: one reduced laser return per wavelength per observation. The laser and
+        //! the ROI are on the boresight; the return is a monostatic Lambert reflection, averaged
+        //! over the integration (the spot smears along the track). Sunlit background is
+        //! subtracted onboard, so only its noise remains.
+        int32_t L0Sim::ActiveTile(const Tile &tile, const Mode &mode, string path)
+        {
+            vector<const Band *> tilebands = ModeBands(mode);
+            if (tilebands.empty() || !tile.frames)
+            {
+                return GENERAL_ERROR_ARGS;
+            }
+
+            size_t lines = tile.frames;
+            size_t nb = tilebands.size();
+            vector<int32_t> data(lines * nb, 0);
+            std::mt19937_64 rng(static_cast<uint64_t>(llround(tile.utc * 86400. * 1000.)));
+            std::normal_distribution<double> gauss(0., 1.);
+
+            constexpr size_t SUBSTEPS = 5;
+            double area = DPI * aperture * aperture / 4.;
+            double roipix = mode.roi[0] * mode.roi[1];
+            double demres = cameras[tilebands[0]->camera].ifov * mode.roi[0] * 40000. / RMOONM;
+            vector<double> footprint;
+            size_t missinglines = 0;
+            misses = 0;
+
+            for (size_t line = 0; line < lines; ++line)
+            {
+                // Per band: summed geometric return fraction (per unit albedo) and background electrons
+                vector<double> geometric(nb, 0.);
+                vector<double> background(nb, 0.);
+                size_t states = 0;
+                for (size_t sub = 0; sub < SUBSTEPS; ++sub)
+                {
+                    double utc = tile.utc + (line / tile.rate + tile.inttime * (sub + .5) / SUBSTEPS) / 86400.;
+                    rvector sc;
+                    quaternion q;
+                    if (Interpolate(utc, sc, q) < 0)
+                    {
+                        continue;
+                    }
+                    ++states;
+                    Convert::locstruc loc;
+                    Convert::pos_extra(utc, loc);
+                    rvector sun = rv_smult(-1., loc.pos.extra.sun2moon.s);
+                    rvector dir = transform_q(q_conjugate(q), rvector(0., 0., 1.));
+                    rvector point;
+                    double lat = 0.;
+                    double lon = 0.;
+                    if (!Intersect(sc, dir, loc.pos.extra.j2s, demres, point, lat, lon))
+                    {
+                        ++misses;
+                        continue;
+                    }
+                    if ((line == 0 || line == lines - 1) && sub == SUBSTEPS / 2)
+                    {
+                        footprint.push_back(DEGOF(lat));
+                        footprint.push_back(DEGOF(lon));
+                    }
+                    double range = length_rv(rv_sub(point, sc));
+                    rvector normal = rv_normal(point);
+                    double cose = -dot_rv(normal, dir);
+                    if (cose <= 0.)
+                    {
+                        continue;
+                    }
+                    // Fraction of the surface's Lambert reflection that enters the aperture
+                    double fraction = cose * area / (DPI * range * range);
+                    rvector tosun = rv_sub(sun, point);
+                    double cosi = dot_rv(normal, rv_normal(tosun));
+                    double au = length_rv(tosun) / AU;
+                    for (size_t ib = 0; ib < nb; ++ib)
+                    {
+                        const Band &band = *tilebands[ib];
+                        const Camera &cam = cameras[band.camera];
+                        geometric[ib] += fraction;
+                        if (cosi > 0.)
+                        {
+                            double qe = cam.qe.count(band.nm) ? cam.qe.at(band.nm) : .5;
+                            double photon = PLANCK_H * LIGHT_C / (band.nm * 1e-9);
+                            double radiance = band.albedo * band.irradiance * cosi / DPI / (au * au);
+                            background[ib] += roipix * radiance * band.bandwidth * area * cam.ifov * cam.ifov * transmission * qe * tile.inttime / photon;
+                        }
+                    }
+                }
+                if (!states)
+                {
+                    ++missinglines;
+                    continue;
+                }
+
+                for (size_t ib = 0; ib < nb; ++ib)
+                {
+                    const Band &band = *tilebands[ib];
+                    const Camera &cam = cameras[band.camera];
+                    double qe = cam.qe.count(band.nm) ? cam.qe.at(band.nm) : .5;
+                    double photon = PLANCK_H * LIGHT_C / (band.nm * 1e-9);
+                    double gain = cam.full_well / pow(2., cam.bits);
+                    double signal = band.laser_energy * band.albedo * geometric[ib] / states * transmission * qe / photon;
+                    double back = background[ib] / states;
+                    double darke = roipix * cam.dark_current * tile.inttime;
+                    double reade2 = roipix * cam.read_noise * cam.read_noise;
+                    double electrons = signal + gauss(rng) * sqrt(signal + back + darke + reade2);
+                    double dn = round(electrons / gain);
+                    dn = std::max(static_cast<double>(INT32_MIN), std::min(static_cast<double>(INT32_MAX), dn));
+                    // write_envi_data() takes band-sequential data and writes the header's interleave
+                    data[ib * lines + line] = static_cast<int32_t>(dn);
+                }
+            }
+            if (missinglines == lines)
+            {
+                return GENERAL_ERROR_OUTOFRANGE;
+            }
+
+            envi_hdr hdr = TileHeader(tile, tilebands, path, 1, lines, missinglines);
+            vector<const Band *> bl = tilebands;
+            auto add = [&hdr](string key, string value) { hdr.keys.push_back(key); hdr.values.push_back(value); };
+            add("roi", std::to_string(mode.roi[0]) + "x" + std::to_string(mode.roi[1]));
+            add("reduction", "{background-subtracted sum over the ROI}");
+            add("band laser energy", envi_list<const Band *>(bl, [](const Band *const &b) { return fixed(b->laser_energy, 6); }));
+            add("forward model", "{laser on the boresight, monostatic Lambert return, constant albedo per band, spherical normal, DEM lola_16, averaged over the integration}");
+            add("footprint", envi_list<double>(footprint, [](const double &v) { return fixed(v, 5); }));
+            add("footprint fields", "{lat, lon of the first line; lat, lon of the last line}");
+            int32_t iretn = write_envi_data(hdr, reinterpret_cast<uint8_t *>(data.data()));
+            if (iretn < 0)
+            {
+                return iretn;
+            }
+            return lines - missinglines;
+        }
+
+        //! The header keys every tile has
+        envi_hdr L0Sim::TileHeader(const Tile &tile, const vector<const Band *> &bl, string path, size_t columns, size_t lines, size_t missinglines)
+        {
             envi_hdr hdr;
             hdr.basename = path;
-            hdr.columns = samples;
+            hdr.columns = columns;
             hdr.rows = lines;
-            hdr.planes = nb;
+            hdr.planes = bl.size();
             hdr.datatype = DT_LONG;
             hdr.interleave = BIL;
             hdr.byteorder = BO_INTEL;
             hdr.x0 = hdr.y0 = 0.;
             hdr.xmpp = hdr.ympp = 1.;
             hdr.description = "Simulated " + instrument + " " + tile.mode + " L0, " + realm + "/" + node;
-            for (const Band *band : tilebands)
+            for (const Band *band : bl)
             {
                 hdr.band_name.push_back(cameras[band->camera].name + " " + std::to_string(band->nm) + " nm");
                 hdr.wavelength.push_back(band->nm);
             }
-            vector<const Band *> bl = tilebands;
             auto add = [&hdr](string key, string value) { hdr.keys.push_back(key); hdr.values.push_back(value); };
             add("wavelength units", "Nanometers");
             add("simulated", "1");
@@ -499,24 +667,12 @@ namespace Cosmos
             add("body frame", "{boresight +Z, along-track +X (ahead), cross-track +Y}");
             add("band camera", envi_list<const Band *>(bl, [this](const Band *const &b) { return cameras[b->camera].name; }));
             add("band ifov", envi_list<const Band *>(bl, [this](const Band *const &b) { return fixed(cameras[b->camera].ifov, 9); }));
-            add("band superpixel", envi_list<const Band *>(bl, [this](const Band *const &b) { return std::to_string(cameras[b->camera].sp_across) + "x" + std::to_string(cameras[b->camera].sp_along); }));
-            add("band first col", envi_list<const Band *>(bl, [this](const Band *const &b) { return std::to_string(cameras[b->camera].first_col); }));
-            add("band first row", envi_list<const Band *>(bl, [](const Band *const &b) { return std::to_string(b->stripe.first_row); }));
-            add("band along", envi_list<const Band *>(bl, [](const Band *const &b) { return fixed(b->stripe.along, 6); }));
             add("band gain", envi_list<const Band *>(bl, [this](const Band *const &b) { return fixed(cameras[b->camera].full_well / pow(2., cameras[b->camera].bits), 6); }));
-            add("forward model", "{constant albedo per band, Lambert, spherical normal, DEM lola_16}");
             add("band albedo", envi_list<const Band *>(bl, [](const Band *const &b) { return fixed(b->albedo, 3); }));
             add("reference frame", "{Moon, selenocentric ICRF position, ICRF to body attitude}");
             add("knot fields", "{utc, sx, sy, sz, vx, vy, vz, qx, qy, qz, qw, wx, wy, wz}");
             add("knots", KnotsText(tile.utc, tile.utc + (lines / tile.rate + tile.inttime) / 86400.));
-            add("footprint", envi_list<double>(footprint, [](const double &v) { return fixed(v, 5); }));
-            add("footprint fields", "{first line: lat, lon of first sample, lat, lon of last sample; last line: same}");
-            int32_t iretn = write_envi_data(hdr, reinterpret_cast<uint8_t *>(data.data()));
-            if (iretn < 0)
-            {
-                return iretn;
-            }
-            return lines - missinglines;
+            return hdr;
         }
 
         //! The knots from the last at or before utcbegin to the first at or after utcend, as an ENVI list
